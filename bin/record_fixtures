@@ -1,0 +1,64 @@
+#!/usr/bin/env ruby
+# Records small, scrubbed samples of what the three APIs return, using only
+# read endpoints, into spec/fixtures/recorded/. Run with the same credential
+# source as the host app, e.g.:
+#   IO_SYNC_CREDENTIALS=path/to/credentials.json bin/record_fixtures
+require "bundler/setup"
+require "io_sync"
+require "fileutils"
+
+creds = JSON.parse(File.read(ENV.fetch("IO_SYNC_CREDENTIALS")), symbolize_names: true)
+config = IoSync::Configuration.new.tap do |c|
+  c.hl_location_id = ENV.fetch("IO_SYNC_HL_LOCATION_ID")
+  c.credentials = creds
+  c.logger = Logger.new($stderr)
+  c.hl_page_limit = 5
+  c.zoom_page_size = 5
+end
+
+io = IoSync::Clients::Intelliflo.new(config: config)
+hl = IoSync::Clients::HighLevel.new(config: config)
+zoom = IoSync::Clients::Zoom.new(config: config)
+
+dir = File.expand_path("../spec/fixtures/recorded", __dir__)
+FileUtils.mkdir_p(dir)
+
+# Replace anything personal with generated values, keeping structure and types.
+SCRUB_KEYS = %w[firstName lastName name email value line1 line2 line3 line4 postalCode dateOfBirth phone niNumber
+                salutation contactName firstNameLowerCase lastNameLowerCase address1 city website companyName].freeze
+def scrub(value, counter = [ 0 ])
+  case value
+  when Hash then value.to_h { |k, v| [ k, SCRUB_KEYS.include?(k) && v.is_a?(String) ? fake(k, v, counter) : scrub(v, counter) ] }
+  when Array then value.map { |v| scrub(v, counter) }
+  else value
+  end
+end
+
+def fake(key, value, counter)
+  counter[0] += 1
+  n = counter[0]
+  case key
+  when "email" then "person#{n}@example.test"
+  when "value" then value.include?("@") ? "person#{n}@example.test" : (value.match?(/\d{6,}/) ? "07700 900#{n.to_s.rjust(3, '0')}" : "value#{n}")
+  when "phone" then "+447700900#{n.to_s.rjust(3, '0')}"
+  when "dateOfBirth" then "1970-01-#{(n % 28 + 1).to_s.rjust(2, '0')}"
+  when "postalCode" then "AB1 2CD"
+  else "#{key}#{n}"
+  end
+end
+
+write = ->(name, data) { File.write(File.join(dir, "#{name}.json"), JSON.pretty_generate(scrub(data))) }
+
+clients = io.clients.first(3)
+write.call("intelliflo_clients", clients)
+write.call("intelliflo_leads", io.leads.first(3))
+clients.first(1).each do |c|
+  write.call("intelliflo_client_contactdetails", io.contactdetails(:client, c["id"]))
+  write.call("intelliflo_client_addresses", io.addresses(c["id"]))
+  write.call("intelliflo_client_plans", io.plans(c["id"]))
+  write.call("intelliflo_client_vulnerability", io.vulnerability(c["id"]) || {})
+end
+write.call("high_level_contacts", hl.search_contacts.first(5))
+write.call("high_level_custom_fields", hl.custom_fields)
+write.call("zoom_external_contacts", zoom.external_contacts.first(5))
+puts "Recorded scrubbed fixtures into #{dir}"

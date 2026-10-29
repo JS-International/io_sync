@@ -1,0 +1,60 @@
+<% r = @report %>
+<h2>IoSync <%= r.mode %> run <%= r.run_id %> (<%= r.status %>)</h2>
+<p>
+  Started <%= r.started_at %>, finished <%= r.finished_at %>.
+  Writes enabled: <%= r.writes_enabled %>.
+  <% if r.approved_from %>Applied against reviewed run <%= r.approved_from %>.<% end %>
+</p>
+<% if r.error %><p style="color:#b00"><strong>Error:</strong> <%= r.error %></p><% end %>
+
+<h3>Counts</h3>
+<ul>
+  <% r.counts.each do |target, kinds| %>
+    <li><strong><%= target %></strong>: <%= kinds.map { |k, v| "#{v} #{k}" }.join(", ") %></li>
+  <% end %>
+  <% unless r.result_counts.empty? %><li><strong>results</strong>: <%= r.result_counts.map { |k, v| "#{v} #{k}" }.join(", ") %></li><% end %>
+</ul>
+<p>
+  Intelliflo: <%= r.stats[:io_clients_listed] %> clients, <%= r.stats[:io_leads_listed] %> leads listed, <%= r.stats[:io_persons] %> persons loaded,
+  <%= r.stats[:io_fetch_failures] %> fetch failures. HighLevel: <%= r.stats[:hl_contacts] %> contacts. Zoom: <%= r.stats[:zoom_contacts] %> contacts.
+  Links: <%= r.stats[:links] %>. API calls: <%= r.stats[:api_calls].inspect %>. Load time <%= r.stats[:load_seconds] %>s.
+</p>
+
+<% unless r.problems.empty? %>
+  <h3>Problems (<%= r.problems.size %>)</h3>
+  <ul><% r.problems.each do |p| %><li><%= p %></li><% end %></ul>
+<% end %>
+
+<% Array(r.notes).each do |category, items| %>
+  <% next if items.empty? %>
+  <h3><%= category.to_s.tr("_", " ").capitalize %> (<%= items.size %>)</h3>
+  <ul style="font-size:13px"><% items.each do |n| %><li><%= n[:name] %>: <%= n[:detail] %></li><% end %></ul>
+<% end %>
+
+<% %i[hl zoom link].each do |target| %>
+  <% actions = @changes.select { |a| a.target == target } %>
+  <% next if actions.empty? %>
+  <h3><%= { hl: "HighLevel", zoom: "Zoom", link: "Links" }[target] %> (<%= actions.size %>)</h3>
+  <table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;font-size:13px">
+    <tr><th>Action</th><th>IO record</th><th>Remote id</th><th>Detail</th><th>Result</th></tr>
+    <% actions.each do |a| %>
+      <tr>
+        <td><%= a.kind %></td>
+        <td><%= a.io_name || a.io_id %><% if a.email %><br><small><%= a.email %></small><% end %></td>
+        <td><small><%= a.remote_id %></small></td>
+        <td>
+          <% if a.reason %><div><%= a.reason %></div><% end %>
+          <% if a.diff && !a.diff.empty? %>
+            <ul style="margin:0;padding-left:16px">
+              <% a.diff.each do |field, (old, new)| %>
+                <li><strong><%= field %></strong>: <code><%= old.inspect %></code> &rarr; <code><%= new.inspect %></code></li>
+              <% end %>
+            </ul>
+          <% end %>
+        </td>
+        <td><% if a.result %><%= a.result[:status] %><% if a.result[:message] %><br><small><%= a.result[:message] %></small><% end %><% end %></td>
+      </tr>
+    <% end %>
+  </table>
+<% end %>
+<p><small>Noops are not listed. The full plan, noops included, is in the attached JSON.</small></p>

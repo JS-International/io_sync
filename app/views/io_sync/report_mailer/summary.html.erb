@@ -1,0 +1,107 @@
+<% r = @report %>
+<% verb = @applied ? "were" : "would be" %>
+<% kind_words = { create: "created", update: "updated", delete: "deleted", dnd: "set to do-not-disturb", add_tags: "given plan tags",
+                  remove_tags: "had plan tags removed", link: "linked", unlink: "unlinked", relink: "relinked", adopt: "linked" } %>
+<% target_words = { hl: "HighLevel contacts", zoom: "Zoom contacts", link: "Intelliflo links" } %>
+<% row = lambda do |name, detail, extra = nil| %>
+  <tr><td style="padding:4px 8px;vertical-align:top"><%= name %></td><td style="padding:4px 8px"><%= detail %><% if extra %><br><small style="color:#666"><%= extra %></small><% end %></td></tr>
+<% end %>
+<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;color:#222;max-width:760px">
+<h2 style="margin-bottom:4px">Intelliflo sync, <%= r.started_at&.in_time_zone(IoSync.config.time_zone)&.strftime("%-d %B %Y %H:%M") %></h2>
+<p style="margin-top:0;color:#555">
+  <% if r.aborted? %>
+    <strong style="color:#b00">The sync stopped before changing anything:</strong> <%= r.error %>
+  <% elsif @applied %>
+    HighLevel and Zoom were updated from Intelliflo.
+  <% else %>
+    This was a <strong>plan only</strong>: nothing in HighLevel or Zoom was changed. It shows what the sync would do.
+  <% end %>
+</p>
+
+<h3>What <%= @applied ? "changed" : "would change" %></h3>
+<% if @changed.empty? %>
+  <p>Nothing: HighLevel and Zoom already match Intelliflo.</p>
+<% else %>
+  <ul>
+    <% @changed.group_by(&:target).each do |target, actions| %>
+      <% actions.group_by(&:kind).each do |kind, list| %>
+        <li><%= list.size %> <%= target_words[target] %> <%= verb %> <%= kind_words[kind] || kind %></li>
+      <% end %>
+    <% end %>
+  </ul>
+<% end %>
+<p style="color:#555;font-size:13px">
+  Checked <%= r.stats[:io_persons] %> Intelliflo people (<%= r.stats[:io_clients_listed] %> clients and <%= r.stats[:io_leads_listed] %> leads listed),
+  <%= r.stats[:hl_contacts] %> HighLevel contacts and <%= r.stats[:zoom_contacts] %> Zoom contacts.
+</p>
+
+<h3>Moved to do-not-disturb (<%= @dnd.size %>)</h3>
+<% if @dnd.empty? %>
+  <p>No one.</p>
+<% else %>
+  <p style="color:#555">Every DND channel in HighLevel <%= verb %> switched on for these contacts.</p>
+  <table style="border-collapse:collapse" border="1" cellspacing="0">
+    <% @dnd.each do |a| %><% row.call(a.io_name, "Intelliflo status: #{a.reason.to_s.capitalize}", a.result && a.result[:status] != :ok ? "not done: #{a.result[:status]} #{a.result[:message]}" : nil) %><% end %>
+  </table>
+<% end %>
+
+<% if @lost_links.any? || @relinked.any? %>
+  <h3>HighLevel contacts that lost their Intelliflo link (<%= @lost_links.size + @relinked.size %>)</h3>
+  <p style="color:#555">These contacts will no longer be updated from the Intelliflo record shown. The HighLevel contact itself is left as it is.</p>
+  <table style="border-collapse:collapse" border="1" cellspacing="0">
+    <% @lost_links.each do |a| %><% row.call(a.io_name || "IO #{a.io_id}", a.reason, a.remote_id && "HighLevel #{a.remote_id}") %><% end %>
+    <% @relinked.each do |a| %><% row.call(a.io_name, a.reason) %><% end %>
+  </table>
+<% end %>
+
+<% if @zoom_deleted.any? %>
+  <h3>Removed from Zoom (<%= @zoom_deleted.size %>)</h3>
+  <table style="border-collapse:collapse" border="1" cellspacing="0">
+    <% @zoom_deleted.each do |a| %><% row.call(a.io_name || "IO #{a.io_id}", a.reason) %><% end %>
+  </table>
+<% end %>
+
+<% if @numbers_blocked.any? || @numbers_partial.any? %>
+  <h3>Phone numbers that could not go on Zoom (<%= @numbers_blocked.size %>)</h3>
+  <p style="color:#555">Zoom allows a number on one contact only. These clients have no number of their own, so they <%= verb %> left out of Zoom.</p>
+  <% if @numbers_blocked.any? %>
+    <table style="border-collapse:collapse" border="1" cellspacing="0">
+      <% @numbers_blocked.each do |n| %><% row.call(n[:name], n[:detail]) %><% end %>
+    </table>
+  <% end %>
+  <% if @numbers_partial.any? %>
+    <p style="color:#555"><%= @numbers_partial.size %> more clients <%= @applied ? "were" : "would be" %> synced to Zoom without a number that is already on
+      another contact, usually a partner's shared landline. They are listed in the full report.</p>
+  <% end %>
+<% end %>
+
+<% if @email_conflicts.any? %>
+  <h3>Email clashes in HighLevel (<%= @email_conflicts.size %>)</h3>
+  <p style="color:#555">HighLevel allows each email on one contact only, so these could not be synced.</p>
+  <table style="border-collapse:collapse" border="1" cellspacing="0">
+    <% @email_conflicts.each do |a| %><% row.call(a.io_name, a.reason) %><% end %>
+  </table>
+<% end %>
+
+<% if @failed.any? %>
+  <h3 style="color:#b00">Changes that failed (<%= @failed.size %>)</h3>
+  <table style="border-collapse:collapse" border="1" cellspacing="0">
+    <% @failed.each do |a| %><% row.call(a.io_name || "IO #{a.io_id}", "#{target_words[a.target]}: #{kind_words[a.kind] || a.kind}", "#{a.result[:status]}: #{a.result[:message]}") %><% end %>
+  </table>
+<% end %>
+
+<% if r.problems.any? %>
+  <h3>Other things to check (<%= r.problems.size %>)</h3>
+  <ul><% r.problems.each do |p| %><li><%= p %></li><% end %></ul>
+<% end %>
+
+<% if @orphans.any? %>
+  <h3>HighLevel contacts with no live Intelliflo record (<%= @orphans.size %>)</h3>
+  <p style="color:#555">Their Client Ref points at an Intelliflo record that Intelliflo no longer lists (archived, deleted or restricted), so the sync never updates them.
+    They stay as they are until someone decides what to do with them.</p>
+  <table style="border-collapse:collapse" border="1" cellspacing="0">
+    <% @orphans.each do |n| %><% row.call(n[:name], n[:detail]) %><% end %>
+  </table>
+<% end %>
+<p style="color:#888;font-size:12px">Run <%= r.run_id %>.</p>
+</div>

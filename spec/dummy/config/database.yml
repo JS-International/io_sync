@@ -1,0 +1,4 @@
+test:
+  adapter: postgresql
+  database: io_sync_test
+  pool: 5

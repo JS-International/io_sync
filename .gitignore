@@ -1,0 +1,8 @@
+/tmp/
+/log/
+/spec/dummy/log/
+/spec/dummy/tmp/
+/spec/fixtures/recorded/
+*.gem
+.bundle/
+io_sync-snapshot-*.json
