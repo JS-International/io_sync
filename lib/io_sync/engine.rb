@@ -8,8 +8,7 @@ module IoSync
       end
     end
 
-    rake_tasks do
-      load File.expand_path("../tasks/io_sync.rake", __dir__)
-    end
+    # lib/tasks/*.rake is loaded by Rails::Engine itself. Loading it again here
+    # registered every task twice, so `rake io_sync:plan` read Intelliflo twice.
   end
 end
