@@ -42,12 +42,12 @@ RSpec.describe "IoSync planners" do
     expect(update.diff.keys).to eq([ "customFields.cfStatus" ])
   end
 
-  it "skips a lead whose email belongs to a contact linked to another record, and reports other conflicts" do
+  it "quietly ignores a lead whose email belongs to a contact linked to another record, and reports other conflicts" do
     client = record(id: 10)
     lead = record(id: 11, type: :lead, details: { lead_status: "Closed" })
     s = snapshot(records: [ client, lead ], hl: [ hl_contact(id: "A") ], links: [ link(io_id: 10, hl: "A") ])
     plan = run_planners(s)
-    expect(actions(plan, :hl, :skip).map(&:io_id)).to eq([ 11 ])
+    expect(plan.actions.select { |a| a.target == :hl }.map(&:io_id)).not_to include(11)
     expect(plan.problems).to be_empty
 
     other = record(id: 12, details: { first: "Morgan" })
@@ -71,7 +71,7 @@ RSpec.describe "IoSync planners" do
     relink = actions(plan, :link, :relink).first
     expect(relink.payload).to eq("from_io_id" => 11, "to_io_id" => 10, "hl_contact_id" => "A")
     expect(actions(plan, :hl, :update).first.io_id).to eq(10)
-    expect(actions(plan, :hl, :skip).first.io_id).to eq(11)
+    expect(actions(plan, :hl).map(&:io_id)).not_to include(11)
   end
 
   it "relinks when the linked record lost its email and one other record holds it" do
@@ -95,7 +95,7 @@ RSpec.describe "IoSync planners" do
     lead = record(id: 11, type: :lead)
     plan = run_planners(snapshot(records: [ client, lead ], hl: [ hl_contact(id: "A") ]))
     expect(actions(plan, :link, :link).map { |a| [ a.io_id, a.remote_id ] }).to eq([ [ 10, "A" ] ])
-    expect(actions(plan, :hl).map { |a| [ a.io_id, a.kind ] }).to contain_exactly([ 10, :noop ], [ 11, :skip ])
+    expect(actions(plan, :hl).map { |a| [ a.io_id, a.kind ] }).to eq([ [ 10, :noop ] ])
 
     twins = [ record(id: 10), record(id: 12, details: { first: "Twin" }) ]
     plan = run_planners(snapshot(records: twins, hl: [ hl_contact(id: "A") ]))
@@ -186,7 +186,27 @@ RSpec.describe "IoSync planners" do
     s.zoom_account_numbers = [ { "number" => "+441214960060", "assignee" => { "name" => "Main Auto Receptionist" } } ]
     plan = run_planners(s)
     expect(actions(plan, :zoom, :create).first.payload["phone_numbers"]).to eq([ "+447911123458" ])
-    expect(plan.notes[:zoom_number_conflicts].first[:detail]).to include("+441214960060 (already on the firm's own Zoom number (Main Auto Receptionist))")
+    expect(plan.notes[:zoom_number_conflicts]).to be_nil
+  end
+
+  it "reports a taken mobile but stays quiet about a shared landline" do
+    first = record(id: 1, contactdetails: contactdetails(mobile: "07911 123 456", telephone: "0121 496 0060"))
+    spouse = record(id: 2, details: { first: "Morgan" },
+                    contactdetails: contactdetails(email: "m@example.test", mobile: "07911 123 457", telephone: "0121 496 0060"))
+    plan = run_planners(snapshot(records: [ first, spouse ]))
+    expect(actions(plan, :zoom, :create).map(&:io_id)).to eq([ 1, 2 ])
+    expect(actions(plan, :zoom, :create).last.payload["phone_numbers"]).to eq([ "+447911123457" ])
+    expect(plan.notes[:zoom_number_conflicts]).to be_nil
+
+    landline_only = record(id: 3, details: { first: "Sam" }, contactdetails: contactdetails(email: "s@example.test", mobile: nil, telephone: "0121 496 0060"))
+    plan = run_planners(snapshot(records: [ first, landline_only ]))
+    expect(plan.actions.select { |a| a.target == :zoom }.map(&:io_id)).to eq([ 1 ])
+    expect(plan.notes[:zoom_number_conflicts]).to be_nil
+
+    shared_mobile = record(id: 4, details: { first: "Alex" }, contactdetails: contactdetails(email: "a@example.test", mobile: "07911 123 456"))
+    plan = run_planners(snapshot(records: [ first, shared_mobile ]))
+    expect(actions(plan, :zoom, :skip).first.io_id).to eq(4)
+    expect(plan.notes[:zoom_number_conflicts].first[:detail]).to start_with("not added to Zoom: +447911123456")
   end
 
   it "claims numbers first come first served in io_id order" do

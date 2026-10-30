@@ -51,12 +51,9 @@ module IoSync
         return false unless owner
         owner_io_id = links.values.detect { |l| l.hl_contact_id == owner["id"] }&.io_id
         owner_record = owner_io_id && snapshot.io_by_id[owner_io_id]
-        if record.lead? && owner_io_id
-          plan.add(target: :hl, kind: :skip, io_id: record.io_id, io_type: record.type.to_s, io_name: record.label, email: record.email,
-                   remote_id: current && current["id"],
-                   reason: "lead's email is owned by HL contact #{owner['id']}, linked to IO #{owner_io_id}#{owner_record ? " #{owner_record.label}" : ''}")
-          return true
-        end
+        # A lead sharing an email with a synced record (a spouse, or the client
+        # it was converted to) is expected and not worth a line in the report.
+        return true if record.lead? && owner_io_id
         target = current ? "HL contact #{current['id']} cannot take this email" : "a new HL contact cannot be created"
         reason =
           if owner_io_id

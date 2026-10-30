@@ -10,6 +10,12 @@ RSpec.describe IoSync::Phone do
     expect(described_class.normalise("+44 7911 123456")).to eq("+447911123456")
   end
 
+  it "tells UK mobiles (+44 7) from landlines" do
+    expect(described_class.mobile?("+447911123456")).to be(true)
+    expect(described_class.mobile?("+441214960060")).to be(false)
+    expect(described_class.mobile?("+442079460000")).to be(false)
+  end
+
   it "rejects blanks, annotations and invalid numbers" do
     expect(described_class.normalise(nil)).to be_nil
     expect(described_class.normalise("  ")).to be_nil

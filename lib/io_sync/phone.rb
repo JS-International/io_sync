@@ -18,5 +18,12 @@ module IoSync
       return nil unless Phonelib.valid?(tel)
       tel
     end
+
+    # A landline is shared by a household, so two records holding one is not
+    # worth reporting; a mobile is personal. UK mobiles are +44 7…; Phonelib
+    # knows the ranges for other countries.
+    def mobile?(number)
+      (Phonelib.parse(number).types & %i[mobile fixed_or_mobile]).any?
+    end
   end
 end

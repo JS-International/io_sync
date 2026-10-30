@@ -43,15 +43,18 @@ module IoSync
         return unless mapper.status_eligible?
 
         blocked = mapper.blocked_numbers.map { |n| "#{n} (already on #{holder(n)})" }
+        # Only a taken mobile is reported; a shared landline is a household.
+        reportable = mapper.blocked_numbers.select { |n| Phone.mobile?(n) }.map { |n| "#{n} (already on #{holder(n)})" }
         if mapper.claimable_numbers.empty?
           return if record.numbers.empty? && current.nil?
+          return if blocked.any? && reportable.empty?
           reason = record.numbers.empty? ? "no valid phone number" : "no claimable number: #{blocked.join(', ')}"
-          plan.note(:zoom_number_conflicts, io_id: record.io_id, name: record.label, detail: "not added to Zoom: #{blocked.join(', ')}") if blocked.any?
+          plan.note(:zoom_number_conflicts, io_id: record.io_id, name: record.label, detail: "not added to Zoom: #{reportable.join(', ')}") if reportable.any?
           return plan.add(target: :zoom, kind: :skip, io_id: record.io_id, io_type: record.type.to_s, io_name: record.label,
                           remote_id: zoom_id, reason: reason)
         end
-        if blocked.any?
-          plan.note(:zoom_number_conflicts, io_id: record.io_id, name: record.label, detail: "synced without #{blocked.join(', ')}")
+        if reportable.any?
+          plan.note(:zoom_number_conflicts, io_id: record.io_id, name: record.label, detail: "synced without #{reportable.join(', ')}")
         end
 
         if current.nil?
