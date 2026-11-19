@@ -111,6 +111,10 @@ module IoSync
       end
     end
 
+    # How many link rows of one type a run may prune: a short download must
+    # not empty the table.
+    def prune_cap(row_count) = [ prune_cap_min, (row_count * prune_cap_fraction).ceil ].max
+
     def owned_custom_field_ids
       hl_custom_field_ids.values
     end

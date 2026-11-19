@@ -137,8 +137,10 @@ RSpec.describe IoSync::Reconcile do
 
   # Record 9 held Hugh's HL contact and has since been archived in Intelliflo.
   describe "a linked record Intelliflo no longer lists" do
-    def apply_with(row, zoom_contacts: [], zoom_delete_status: 204)
+    def apply_with(row, zoom_contacts: [], zoom_delete_status: 204, io_status: 404)
       store.set(row.io_id, **row.to_h.except(:io_id))
+      stub_request(:get, "#{ApiStubs::IO}/#{row.io_type}s/#{row.io_id}")
+        .to_return(io_status == 404 ? { status: 404, body: "" } : json(io_details(id: row.io_id)))
       stub_zoom(contacts: [ zoom_contact(external_id: "Z1", io_id: 1), *zoom_contacts ])
       stub_request(:any, %r{#{ApiStubs::HL}/contacts/(?!search)}).to_return(json({ contact: hl_contact(id: "NEW", email: "morgan@example.test") }))
       stub_request(:post, "#{ApiStubs::ZOOM}/phone/external_contacts").to_return(json({ external_contact_id: "ZNEW" }, status: 201))
@@ -158,6 +160,13 @@ RSpec.describe IoSync::Reconcile do
       apply_with(link(io_id: 9, hl: "D", zoom: "Z9"), zoom_contacts: [ zoom_contact(external_id: "Z9", io_id: 9) ])
       expect(a_request(:delete, "#{ApiStubs::ZOOM}/phone/external_contacts/Z9")).to have_been_made
       expect(store.find(9)).to be_nil
+    end
+
+    it "leaves the row alone while Intelliflo still returns the record" do
+      report = apply_with(link(io_id: 9, io_type: "lead", hl: "D"), io_status: 200)
+      expect(store.find(9).hl_contact_id).to eq("D")
+      expect(store.find(4)).to be_nil
+      expect(report.actions.select { |a| a.target == :link }.map(&:kind)).to eq([ :prune_skipped ])
     end
 
     it "keeps the Zoom id when the Zoom delete fails, so the next run tries again" do

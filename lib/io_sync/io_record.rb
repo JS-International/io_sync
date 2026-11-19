@@ -127,7 +127,7 @@ module IoSync
     end
 
     def label
-      "#{name.empty? ? [first_name, last_name].compact.join(' ') : name} (IO #{io_id})"
+      "#{name.empty? ? [ first_name, last_name ].compact.join(' ') : name} (IO #{io_id})"
     end
 
     private

@@ -108,7 +108,7 @@ RSpec.describe "IoSync planners" do
     hl = (1..5).map { |i| hl_contact(id: "H#{i}", email: "p#{i}@example.test") }
     zoom = (1..5).map { |i| zoom_contact(external_id: "Z#{i}", io_id: i) }
     s = snapshot(records: [ record(id: 1, contactdetails: contactdetails(email: "p1@example.test")) ], hl: hl, zoom: zoom, links: rows,
-                 listed: { client: [ 1, 2, 3, 4 ], lead: [] })
+                 listed: { client: [ 1, 2, 3, 4 ], lead: [] }, gone: [ 5 ])
     plan = run_planners(s, config: config(prune_cap_min: 1))
     expect(actions(plan, :link, :unlink).map(&:io_id)).to eq([ 5 ])
     expect(actions(plan, :zoom, :delete).map(&:remote_id)).to eq([ "Z5" ])
@@ -119,6 +119,32 @@ RSpec.describe "IoSync planners" do
     expect(actions(plan, :link, :unlink)).to be_empty
     expect(actions(plan, :link, :prune_skipped).size).to eq(4)
     expect(plan.problems.first).to include("Skipped unlinking 4 client rows")
+  end
+
+  it "keeps the link of a record missing from the list until Intelliflo answers 404 for it" do
+    s = snapshot(records: [ record(id: 1) ], hl: [ hl_contact(id: "H1"), hl_contact(id: "H5", email: "p5@example.test") ],
+                 zoom: [ zoom_contact(external_id: "Z5", io_id: 5) ],
+                 links: [ link(io_id: 1, hl: "H1"), link(io_id: 5, hl: "H5", zoom: "Z5") ])
+    plan = run_planners(s)
+    expect(actions(plan, :link, :unlink)).to be_empty
+    expect(actions(plan, :zoom, :delete)).to be_empty
+    expect(actions(plan, :link, :prune_skipped).map(&:io_id)).to eq([ 5 ])
+  end
+
+  it "does not treat a record listed under the other type as missing" do
+    converted = record(id: 5, contactdetails: contactdetails(email: "p5@example.test"))
+    s = snapshot(records: [ converted ], hl: [ hl_contact(id: "H5", email: "p5@example.test") ],
+                 links: [ link(io_id: 5, io_type: "lead", hl: "H5") ], gone: [ 5 ])
+    plan = run_planners(s)
+    expect(actions(plan, :link).map(&:kind)).to be_empty
+  end
+
+  it "plans only the Zoom delete again for a gone record whose HL id was already cleared" do
+    s = snapshot(records: [ record(id: 1) ], hl: [ hl_contact(id: "H1") ], zoom: [ zoom_contact(external_id: "Z9", io_id: 9) ],
+                 links: [ link(io_id: 1, hl: "H1"), link(io_id: 9, zoom: "Z9") ], gone: [ 9 ])
+    plan = run_planners(s)
+    expect(actions(plan, :link, :unlink)).to be_empty
+    expect(actions(plan, :zoom, :delete).map(&:remote_id)).to eq([ "Z9" ])
   end
 
   it "drops link ids whose remote records vanished" do

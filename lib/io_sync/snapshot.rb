@@ -6,7 +6,7 @@ module IoSync
 
   # Everything one run reads, in memory. Built by SnapshotLoader.
   class Snapshot
-    attr_accessor :io_listed_ids, :custom_field_names, :stats, :problems, :scoped, :zoom_account_numbers
+    attr_accessor :io_listed_ids, :io_gone_ids, :custom_field_names, :stats, :problems, :scoped, :zoom_account_numbers
     attr_reader :io_records, :hl_contacts, :zoom_contacts, :links
 
     def io_records=(v)
@@ -32,6 +32,7 @@ module IoSync
     def initialize
       @io_records = []
       @io_listed_ids = { client: Set.new, lead: Set.new }
+      @io_gone_ids = Set.new
       @hl_contacts = []
       @zoom_contacts = []
       @zoom_account_numbers = []
@@ -72,7 +73,7 @@ module IoSync
     def to_h
       {
         "saved_at" => Time.now.utc.iso8601, "version" => IoSync::VERSION, "scoped" => scoped,
-        "io_listed_ids" => io_listed_ids.transform_keys(&:to_s).transform_values(&:to_a),
+        "io_listed_ids" => io_listed_ids.transform_keys(&:to_s).transform_values(&:to_a), "io_gone_ids" => io_gone_ids.to_a,
         "io_records" => io_records.map(&:to_h), "hl_contacts" => hl_contacts, "zoom_contacts" => zoom_contacts, "zoom_account_numbers" => zoom_account_numbers,
         "custom_field_names" => custom_field_names, "links" => links.values.map { |l| l.to_h.transform_keys(&:to_s) },
         "stats" => stats, "problems" => problems
@@ -83,6 +84,7 @@ module IoSync
       new.tap do |s|
         s.scoped = h["scoped"]
         s.io_listed_ids = { client: h.dig("io_listed_ids", "client").to_set, lead: h.dig("io_listed_ids", "lead").to_set }
+        s.io_gone_ids = Array(h["io_gone_ids"]).to_set
         s.io_records = h["io_records"].map { |r| IoRecord.from_h(r) }
         s.hl_contacts = h["hl_contacts"]
         s.zoom_contacts = h["zoom_contacts"]

@@ -19,6 +19,7 @@ module IoSync
       snapshot.links = @link_store.all.to_h { |l| [ l.io_id, l ] }
 
       load_intelliflo(snapshot)
+      confirm_gone(snapshot) unless snapshot.scoped
       load_high_level(snapshot)
       load_zoom(snapshot)
 
@@ -27,6 +28,7 @@ module IoSync
         io_leads_listed: snapshot.io_listed_ids[:lead].size,
         io_persons: snapshot.io_records.size,
         io_fetch_failures: snapshot.io_records.count(&:fetch_error),
+        io_gone_confirmed: snapshot.io_gone_ids.size,
         hl_contacts: snapshot.hl_contacts.size,
         zoom_contacts: snapshot.zoom_contacts.size,
         links: snapshot.links.size,
@@ -73,6 +75,25 @@ module IoSync
 
       load_admins(records)
       snapshot.io_records = records
+    end
+
+    # A linked record missing from both lists counts as archived or deleted
+    # only once Intelliflo answers 404 for it, so a short list cannot unlink
+    # anyone. Nothing is checked for a type whose list looks broken (over the
+    # prune cap, or under half the rows); the planner reports those instead.
+    def confirm_gone(snapshot)
+      listed = snapshot.io_listed_ids.values.reduce(Set.new, :|)
+      snapshot.links.values.group_by { |l| l.io_type.to_s }.each do |type, rows|
+        next unless %w[client lead].include?(type)
+        missing = rows.reject { |l| listed.include?(l.io_id) }
+        next if missing.empty? || missing.size > config.prune_cap(rows.size)
+        next if snapshot.io_listed_ids[type.to_sym].size < rows.size / 2
+        missing.each do |l|
+          @intelliflo.public_send(type, l.io_id)
+        rescue ApiError => e
+          snapshot.io_gone_ids << l.io_id if e.status == 404
+        end
+      end
     end
 
     def list_intelliflo(snapshot)

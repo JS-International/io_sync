@@ -31,7 +31,7 @@ RSpec.describe IoSync::ReportMailer, type: :mailer do
                           hl: [ Builders.hl_contact(id: "A", first: "Jamie", last: "Rowe", dnd: nil), orphan ],
                           zoom: [ Builders.zoom_contact(external_id: "OTHER", io_id: 99, numbers: [ "+447911123456" ]) ],
                           links: [ Builders.link(io_id: 1, hl: "A"), Builders.link(io_id: 7, hl: "GONE") ],
-                          listed: { client: [ 1, 2, 7 ], lead: [] })
+                          listed: { client: [ 1, 2, 7 ], lead: [] }, gone: [ 7 ])
     s.io_listed_ids = { client: Set[1, 2], lead: Set[] }
     plan = Builders.run_planners(s, config: IoSync.config)
     report = IoSync::Report.new(run_id: "r2", mode: :apply, started_at: Time.utc(2026, 10, 29, 12), writes_enabled: true).load_plan(plan)

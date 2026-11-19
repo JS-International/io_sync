@@ -11,7 +11,7 @@ RSpec.describe IoSync::Snapshot do
                    hl_contact(id: "R", email: "riley@example.test", first: "Riley", last: "Hart") ],
              zoom: [ zoom_contact(external_id: "Z1", io_id: 1) ],
              links: [ link(io_id: 1, hl: "A", zoom: "Z1"), link(io_id: 2, hl: "B"), link(io_id: 9, hl: "R") ],
-             custom_field_names: { "cfCrm" => "Customer CRM" }).tap { |s| s.stats = { io_persons: 2 } }
+             gone: [ 9 ], custom_field_names: { "cfCrm" => "Customer CRM" }).tap { |s| s.stats = { io_persons: 2 } }
   end
 
   it "round-trips through a JSON file, plans identically, and is owner-read-only" do
@@ -21,6 +21,7 @@ RSpec.describe IoSync::Snapshot do
       expect(File.stat(path).mode & 0o777).to eq(0o600)
       back = described_class.load_file(path)
       expect(back.io_listed_ids).to eq(snap.io_listed_ids)
+      expect(back.io_gone_ids).to eq(Set[9])
       expect(back.stats[:io_persons]).to eq(2)
       expect(back.links[2].hl_contact_id).to eq("B")
       expect(run_planners(back).actions.map(&:digest)).to eq(run_planners(snap).actions.map(&:digest))

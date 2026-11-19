@@ -90,7 +90,7 @@ module Builders
     IoSync::LinkRow.new(io_id: io_id, io_type: io_type, hl_contact_id: hl, zoom_external_contact_id: zoom)
   end
 
-  def snapshot(records: [], hl: [], zoom: [], links: [], listed: nil, custom_field_names: {})
+  def snapshot(records: [], hl: [], zoom: [], links: [], listed: nil, gone: [], custom_field_names: {})
     IoSync::Snapshot.new.tap do |s|
       s.io_records = records.sort_by(&:io_id)
       s.hl_contacts = hl
@@ -99,6 +99,7 @@ module Builders
       s.custom_field_names = custom_field_names
       listed ||= { client: records.select(&:client?).map(&:io_id), lead: records.select(&:lead?).map(&:io_id) }
       s.io_listed_ids = { client: listed[:client].to_set, lead: listed[:lead].to_set }
+      s.io_gone_ids = gone.to_set
     end
   end
 

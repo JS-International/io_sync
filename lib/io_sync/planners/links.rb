@@ -28,16 +28,18 @@ module IoSync
         @effective.values.detect { |l| l.hl_contact_id == hl_contact_id }&.io_id
       end
 
-      # IO records absent from the IO list are archived or deleted. Unlink them
-      # (the HL contact is left untouched) and delete their Zoom contact, with a
-      # cap so a bad download cannot wipe the table.
+      # IO records absent from both IO lists, and confirmed gone by a 404 from
+      # Intelliflo (SnapshotLoader#confirm_gone), are archived or deleted.
+      # Unlink them (the HL contact is left untouched) and delete their Zoom
+      # contact, with a cap so a bad download cannot wipe the table.
       def prune_missing
+        listed_any = snapshot.io_listed_ids.values.reduce(Set.new, :|)
         %i[client lead].each do |type|
           rows = @effective.values.select { |l| l.io_type.to_s == type.to_s }
           listed = snapshot.io_listed_ids[type]
-          missing = rows.reject { |l| listed.include?(l.io_id) }
+          missing = rows.reject { |l| listed_any.include?(l.io_id) }
           next if missing.empty?
-          allowed = [ config.prune_cap_min, (rows.size * config.prune_cap_fraction).ceil ].max
+          allowed = config.prune_cap(rows.size)
           if listed.size < rows.size / 2 || missing.size > allowed
             plan.problem("Skipped unlinking #{missing.size} #{type} rows missing from Intelliflo (cap #{allowed}, #{listed.size} listed): check the download")
             missing.each do |l|
@@ -47,6 +49,12 @@ module IoSync
             next
           end
           missing.each do |l|
+            unless snapshot.io_gone_ids.include?(l.io_id)
+              plan.add(target: :link, kind: :prune_skipped, io_id: l.io_id, io_type: l.io_type, remote_id: l.hl_contact_id,
+                       reason: "missing from the Intelliflo #{type} list, but Intelliflo did not answer 404 for it; kept",
+                       payload: l.to_h.transform_keys(&:to_s))
+              next
+            end
             zoom = l.zoom_external_contact_id && snapshot.zoom_by_external_id[l.zoom_external_contact_id]
             if zoom
               plan.add(target: :zoom, kind: :delete, io_id: l.io_id, io_type: l.io_type, remote_id: l.zoom_external_contact_id,
@@ -56,8 +64,10 @@ module IoSync
             # The Zoom id stays until its delete succeeds, which then removes the
             # row, so a failed delete is tried again on the next run.
             after = l.to_h.merge(hl_contact_id: nil, zoom_external_contact_id: zoom ? l.zoom_external_contact_id : nil)
-            plan.add(target: :link, kind: :unlink, io_id: l.io_id, io_type: l.io_type, remote_id: l.hl_contact_id,
-                     reason: "IO #{type} no longer listed by Intelliflo (archived or deleted)", payload: after.transform_keys(&:to_s))
+            unless after == l.to_h   # only the Zoom id left, and its delete is planned again
+              plan.add(target: :link, kind: :unlink, io_id: l.io_id, io_type: l.io_type, remote_id: l.hl_contact_id,
+                       reason: "IO #{type} no longer listed by Intelliflo (archived or deleted)", payload: after.transform_keys(&:to_s))
+            end
             @effective.delete(l.io_id)
           end
         end
