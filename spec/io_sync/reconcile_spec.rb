@@ -135,6 +135,38 @@ RSpec.describe IoSync::Reconcile do
     expect(a_request(:put, "#{ApiStubs::HL}/contacts/D").with { |r| JSON.parse(r.body).dig("dndSettings", "SMS", "status") == "active" }).to have_been_made
   end
 
+  # Record 9 held Hugh's HL contact and has since been archived in Intelliflo.
+  describe "a linked record Intelliflo no longer lists" do
+    def apply_with(row, zoom_contacts: [], zoom_delete_status: 204)
+      store.set(row.io_id, **row.to_h.except(:io_id))
+      stub_zoom(contacts: [ zoom_contact(external_id: "Z1", io_id: 1), *zoom_contacts ])
+      stub_request(:any, %r{#{ApiStubs::HL}/contacts/(?!search)}).to_return(json({ contact: hl_contact(id: "NEW", email: "morgan@example.test") }))
+      stub_request(:post, "#{ApiStubs::ZOOM}/phone/external_contacts").to_return(json({ external_contact_id: "ZNEW" }, status: 201))
+      stub_request(:delete, "#{ApiStubs::ZOOM}/phone/external_contacts/Z9").to_return(status: zoom_delete_status, body: "")
+      reconcile(mode: :apply, config: config(writes_enabled: true))
+    end
+
+    it "removes its link row, so the HL contact can be linked to the record that now has the email" do
+      report = apply_with(link(io_id: 9, io_type: "lead", hl: "D"))
+      expect(report.writes.select { |a| a.target == :link }.map { |a| [ a.kind, a.io_id, a.result[:status] ] })
+        .to eq([ [ :unlink, 9, :ok ], [ :link, 4, :ok ] ])
+      expect(store.find(9)).to be_nil
+      expect(store.find(4).hl_contact_id).to eq("D")
+    end
+
+    it "removes the row once its Zoom contact is deleted too" do
+      apply_with(link(io_id: 9, hl: "D", zoom: "Z9"), zoom_contacts: [ zoom_contact(external_id: "Z9", io_id: 9) ])
+      expect(a_request(:delete, "#{ApiStubs::ZOOM}/phone/external_contacts/Z9")).to have_been_made
+      expect(store.find(9)).to be_nil
+    end
+
+    it "keeps the Zoom id when the Zoom delete fails, so the next run tries again" do
+      apply_with(link(io_id: 9, hl: "D", zoom: "Z9"), zoom_contacts: [ zoom_contact(external_id: "Z9", io_id: 9) ], zoom_delete_status: 500)
+      expect(store.find(9).to_h).to include(hl_contact_id: nil, zoom_external_contact_id: "Z9")
+      expect(store.find(4).hl_contact_id).to eq("D")
+    end
+  end
+
   it "applies only approved actions and isolates failures" do
     planned = reconcile(mode: :plan)
     approved_digest = planned.actions.detect { |a| a.kind == :update }.digest

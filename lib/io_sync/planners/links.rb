@@ -47,13 +47,17 @@ module IoSync
             next
           end
           missing.each do |l|
-            if l.zoom_external_contact_id && snapshot.zoom_by_external_id[l.zoom_external_contact_id]
+            zoom = l.zoom_external_contact_id && snapshot.zoom_by_external_id[l.zoom_external_contact_id]
+            if zoom
               plan.add(target: :zoom, kind: :delete, io_id: l.io_id, io_type: l.io_type, remote_id: l.zoom_external_contact_id,
-                       io_name: snapshot.zoom_by_external_id[l.zoom_external_contact_id]["name"],
-                       reason: "IO #{type} no longer listed by Intelliflo (archived or deleted)", payload: nil)
+                       io_name: zoom["name"], reason: "IO #{type} no longer listed by Intelliflo (archived or deleted)", payload: nil)
             end
+            # The payload is the row as the unlink leaves it. The HL id goes now.
+            # The Zoom id stays until its delete succeeds, which then removes the
+            # row, so a failed delete is tried again on the next run.
+            after = l.to_h.merge(hl_contact_id: nil, zoom_external_contact_id: zoom ? l.zoom_external_contact_id : nil)
             plan.add(target: :link, kind: :unlink, io_id: l.io_id, io_type: l.io_type, remote_id: l.hl_contact_id,
-                     reason: "IO #{type} no longer listed by Intelliflo (archived or deleted)", payload: l.to_h.transform_keys(&:to_s))
+                     reason: "IO #{type} no longer listed by Intelliflo (archived or deleted)", payload: after.transform_keys(&:to_s))
             @effective.delete(l.io_id)
           end
         end
